@@ -2,8 +2,9 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 
-const DEFAULT_ENV_PATH = path.join(process.cwd(), ".env");
-const DEFAULT_KEY_PATH = path.join(process.cwd(), ".envrypt");
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const DEFAULT_ENV_PATH = path.join(__dirname, ".env");
+const DEFAULT_KEY_PATH = path.join(__dirname, ".envrypt");
 
 function isEncryptedMarker(line) {
   return line.trim().toLowerCase() === "# encrypted";

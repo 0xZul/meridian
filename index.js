@@ -932,6 +932,14 @@ function getDeterministicCloseRule(position, managementConfig) {
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
   }
+  // Rule 6: OOR bawah — langsung close tanpa syarat
+  if (
+    position.active_bin != null &&
+    position.lower_bin != null &&
+    position.active_bin < position.lower_bin
+  ) {
+    return { action: "CLOSE", rule: 6, reason: "OOR below" };
+  }
   return null;
 }
 
