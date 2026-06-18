@@ -2,6 +2,8 @@ import { config } from "../config.js";
 import { log } from "../logger.js";
 import { agentMeridianJson, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { safeNumber } from "../utils/number.js";
+import { OpenApiClient } from "gmgn-cli/dist/client/OpenApiClient.js";
+import { getConfig as getGMGNConfig } from "gmgn-cli/dist/config.js";
 
 const DEFAULT_INTERVALS = ["5_MINUTE"];
 const DEFAULT_CANDLES = 298;
@@ -15,6 +17,35 @@ function normalizeIntervals(intervals) {
 
 function safeNum(value) {
   return safeNumber(value, null);
+}
+
+// ── GMGN MA20 entry check ──────────────────────────
+let _gmgnClient = null;
+function getGMGNClient() {
+  if (!_gmgnClient) {
+    _gmgnClient = new OpenApiClient(getGMGNConfig());
+  }
+  return _gmgnClient;
+}
+
+async function confirmGMGNMA20(mint) {
+  try {
+    const fromMs = Date.now() - 20 * 15 * 60 * 1000;
+    const data = await getGMGNClient().getTokenKline("sol", mint, "15m", fromMs);
+    const bars = data?.list;
+    if (!bars || bars.length < 4)
+      return { confirmed: true, reason: "GMGN MA20: no data, fallback pass" };
+
+    const closes = bars.map(b => parseFloat(b.close));
+    const current = closes[closes.length - 1];
+    const sma20 = closes.reduce((a, b) => a + b, 0) / closes.length;
+
+    return current >= sma20
+      ? { confirmed: true, reason: `price ${current.toFixed(6)} above SMA20 ${sma20.toFixed(6)}, valid entry for downside range` }
+      : { confirmed: false, reason: `price ${current.toFixed(6)} below SMA20 ${sma20.toFixed(6)}, high potential OOR above` };
+  } catch (err) {
+    return { confirmed: true, reason: `GMGN MA20 unavailable (${err.message}), fallback pass` };
+  }
 }
 
 function buildSignalSummary(payload) {
@@ -238,6 +269,17 @@ export async function confirmIndicatorPreset({
   const targets = normalizeIntervals(intervals);
   if (targets.length === 0) {
     return { enabled: false, confirmed: true, reason: "No indicator intervals configured", intervals: [] };
+  }
+
+  // GMGN MA20 bypass — fetch langsung dari GMGN, skip Agent Meridian
+  if (preset === "gmgn_ma20_entry") {
+    const r = await confirmGMGNMA20(mint);
+    return {
+      enabled: true, confirmed: r.confirmed, preset,
+      side, requireAllIntervals: false,
+      reason: r.reason,
+      intervals: [{ interval: "15_MINUTE", ok: true, confirmed: r.confirmed, reason: r.reason, signal: null, latest: null }],
+    };
   }
 
   const results = [];
